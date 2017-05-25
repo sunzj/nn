@@ -9,16 +9,23 @@ class Neuron:
         self.bias         = bias
         self.weights      = []
         self.d_weights    = []
-        self.d_bias       = 0.0
+        self.d_bias       = []
         self.back_output  = 0.0
         self.back_weights = []
+        self.nums_inputs  = 0
         self.active_type = 'sigmoid'
 
     def init_weights(self,nums_inputs):
-        self.weights   = [0] * nums_inputs
-        self.d_weights = [0] * nums_inputs
+	self.nums_inputs = nums_inputs
+        self.weights     = [0] * nums_inputs
         for i in range(nums_inputs):
             self.weights[i] = random.random()
+
+    def set_mini_batch(self,mini_batch):
+        d_weight       = [0.0] * mini_batch
+        self.d_bias    = [0.0] * mini_batch
+        for i in range(self.nums_inputs):
+            self.d_weights.append(d_weight)
 
     def calculate_total_input(self):
         total = 0.0   
@@ -55,7 +62,7 @@ class Neuron:
         return (self.output - target_output) / (self.output * (1 - self.output))
 
     def calculate_dy_dz(self):
-	    return self.d_activate()
+	return self.d_activate()
         
     def calculate_dz_dw(self,index):
         return self.inputs[index]
@@ -81,17 +88,20 @@ class Neuron:
         self.back_output = self.calculate_dy_dz()*self.calculate_total_backinput()
         return self.back_output
 
-    def calculate_dloss_dw(self):
+    def calculate_dloss_dw(self,batch_index):
+        #print(self.d_weights)
         for i in range(len(self.inputs)):
-            self.d_weights[i] = self.back_output * self.calculate_dz_dw(i)
+            self.d_weights[i][batch_index] = self.back_output * self.calculate_dz_dw(i)
 
-    def calculate_dloss_db(self):
-        self.d_bias = self.back_output * self.calculate_dz_db()
+    def calculate_dloss_db(self,batch_index):
+        self.d_bias[batch_index] = self.back_output * self.calculate_dz_db()
 
     def update_weights(self):
+        #print (self.d_weights)
         for i in range(len(self.inputs)):
-            self.weights[i] = self.weights[i] - 0.15*self.d_weights[i]
-        self.bias = self.bias - 0.15 * self.d_bias
+            #print (self.d_weights[i])
+            self.weights[i] = self.weights[i] - 0.15 * sum(self.d_weights[i])
+            self.bias = self.bias - 0.15 * sum(self.d_bias)
 
 
 class NeuralLayer:
@@ -105,6 +115,10 @@ class NeuralLayer:
     def init_weights(self,nums_inputs):
         for neuron in self.neurons:
             neuron.init_weights(nums_inputs)
+
+    def set_mini_batch(self,mini_batch):
+        for neuron in self.neurons:
+            neuron.set_mini_batch(mini_batch)
 
     def feed_forward(self,inputs):
         outputs = []
@@ -146,10 +160,13 @@ class NeuralLayer:
             back_outputs.append(neuron.calculate_backoutput(self.back_input_x))
         return back_outputs
 
+    def calculate_dloss(self,batch_index):
+	for neuron in self.neurons:
+            neuron.calculate_dloss_dw(batch_index)
+            neuron.calculate_dloss_db(batch_index)
+
     def update_weights(self):
         for neuron in self.neurons:
-            neuron.calculate_dloss_dw()
-            neuron.calculate_dloss_db()
             neuron.update_weights()    
                      
 
@@ -172,12 +189,13 @@ class NeuralNetwork:
         self.output_layer.init_weights(num_neurons)
         layer.flash_back_weights(self.output_layer)
         self.hiden_layers.append(layer)
-     
+
     def calculate_back_inputs(self,training_output):
 		
         return self.output_layer.calculate_back_inputs(training_output)
 
     def feed_forward(self,inputs):
+        #print(inputs)
         input_x = list(inputs)
         for hiden_layer in self.hiden_layers:
             out_puts  = hiden_layer.feed_forward(input_x)
@@ -191,6 +209,11 @@ class NeuralNetwork:
             backout_puts = back_hiden_layer.back_forward(back_input_x)
             back_input_x = backout_puts
     
+    def calculate_dloss(self,batch_index):
+        for layer in self.hiden_layers:
+            layer.calculate_dloss(batch_index)
+        self.output_layer.calculate_dloss(batch_index)
+
     def update_parameters(self):
         for layer in self.hiden_layers:
             layer.update_weights()
@@ -205,10 +228,20 @@ class NeuralNetwork:
             else:
                layer.flash_back_weights(self.output_layer)
 
-    def train(self,training_inputs,training_output):
-        self.feed_forward(training_inputs)
-        self.back_forward(training_output)
-        self.update_parameters()
+    def set_mini_batch(self,mini_batch):
+        for layer in self.hiden_layers:
+            layer.set_mini_batch(mini_batch)
+        self.output_layer.set_mini_batch(mini_batch)
+
+    def train(self,training_inputs,training_output,epoches,mini_batch):
+        self.set_mini_batch(mini_batch)
+        for epoch in range(epoches):
+            for i in range(mini_batch):
+                index = (epoch + i) % len(training_inputs)
+                self.feed_forward(training_inputs[index])
+                self.back_forward(training_output[index])
+                self.calculate_dloss(i)
+            self.update_parameters()
 
     def predit(self,predit_inputs):
         self.feed_forward(predit_inputs)
@@ -232,10 +265,7 @@ y_label = [[0],[1],[1],[0]]
 
 nn = NeuralNetwork(2,1)
 nn.add_hiden_layer(5)
-
-for i in range(5000):
-    for j in range(4):
-        nn.train(x_label[j], y_label[j])
+nn.train(x_label, y_label,2000,1)
 
 for t in range(4):
     print(nn.predit(x_label[t]))
